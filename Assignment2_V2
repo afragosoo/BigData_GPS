@@ -1,0 +1,97 @@
+---
+title: "Assignment 2"
+author: "Alberto Fragoso A59018251, Yuki Imura A59011525, Yumeng Liu A59018672, Merik Manzano A15588460, Marcia Yang A12006191"
+date: "2023-01-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Install necessary packages if needed.
+# install.pacakges("tidyverse")
+# install.packages("readxl")
+# install.packages("sf")
+# install.packages("tigris")
+
+# Load necessary packages into R
+library(tidyverse)
+library(readxl)
+library(sf)
+library(tigris)
+
+# Please set working directory to fit your own work station.
+setwd("/Users/albertofragoso/Documents/R/BigData/Project")
+```
+
+
+### Load stop activity and census data into R
+
+First, we create data frames for the bus stop activity data and the ACS data, respectively. Our bus stop data is saved in the data frame *dat1*, and our ACS data is saved in the data frame *dat2*.
+
+```{r echo = TRUE, include = FALSE}
+# Load 5% sample stop activity data as dat1 dataframe.
+getwd()
+setwd("/Users/albertofragoso/Documents/R/BigData/Project")
+dat1 <- read_csv("fivepctsample_stop_activity_granular_2020-09-01_2020-10-31-001.csv",
+                  col_names = TRUE,
+                  na = "NULL")
+
+# Load ACS 2019 tract data as dat2 dataframe.
+dat2 <- read_csv("King_County_ACS_2019_tract.csv",
+                 col_names = TRUE,
+                 na = "NA")
+
+```
+
+### Link bus stop to census data
+
+We created a third data frame called *stop_census* which links the bus stop intersection data with each census tract's GEOID to aid us in creating a large data frame with all the requisite data. We created this data frame using the tutorial provided on Canvas.
+
+```{r echo = TRUE, include = FALSE}
+# Read shapefile and transform coordinates.
+# It may be helpful if you have a folder labeled "KCM_Stops_Data" with the shape files in the folder you are working out of for the project.
+setwd("/Users/albertofragoso/Documents/R/BigData/Project")
+shapename <- read_sf('./KCM_Stops_Data/kcm_stops.shp')
+stops <- cbind(shapename, st_transform(x = shapename,crs = 4326) %>%
+                 st_coordinates)
+
+head(stops)
+
+# Load census tract shape files using tigris package.
+kctracts <- tigris::tracts(state = 53, county = 033, cb = FALSE, year = 2020)
+
+# Convert the data
+stops_sf <- st_as_sf(data.frame(x = stops$X, y = stops$Y),
+                     coords = c('x', 'y'),
+                     crs = st_crs(kctracts))
+
+# Create a new data frame that matches the bus stop to the census tract
+stop_census <- stops_sf %>%
+  mutate(intersection = as.integer(st_intersects(geometry, kctracts)),
+         GEOID = if_else(is.na(intersection),'',kctracts$GEOID[intersection])
+         )
+
+```
+
+### Merge the data into a single data frame.
+
+First, we transformed the *stop_census* data frame into all numeric types by recoding blank strings as NA and converting the GEOID column into numeric type. Then, we merged *dat1* and *stop_census* into a single data frame called *kcdat* by matching *dat1*'s "STOP_ID" column with *stop_census*'s "intersection" column. After that, we merged *dat2* into *kcdat* by matching *kcdat*'s "GEOID" column with *dat2*'s GEOID column. This resulted in a large data frame of 1,806,553 rows and 313 columns, but many of these rows contain missing data which we will have to clean up.
+
+```{r echo = TRUE, include = FALSE}
+# Replace blanks in new stop_census data with NA type to make it easier to merge data
+stop_census <- stop_census %>%
+  mutate_all(na_if, "")
+# Change stop_census GEOID column to numeric data type
+stop_census <- transform(stop_census, GEOID = as.numeric(GEOID))
+
+# Merge bus stop geographic data with ACS data ***** CORRECTION FROM V1
+kcdat_geometricACS <- left_join(dat2, stop_census, by = c("GEOID" = "GEOID"))
+
+#There is still no correct way to merge the ACS geometric data with the dat1, since stop id & intersection merge return NA in acs columns
+kcdat <- left_join(dat1, kcdat_geometricACS, by = c("STOP_ID" = "intersection"))
+
+```
+
+
+
